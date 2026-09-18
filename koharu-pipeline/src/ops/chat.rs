@@ -202,13 +202,26 @@ fn is_private_ip(host: &str) -> bool {
         std::net::IpAddr::V4(v4) => {
             v4.is_loopback()            // 127.0.0.0/8
                 || v4.is_private()      // 10/8, 172.16/12, 192.168/16
-                || v4.is_link_local()   // 169.254/16 (cloud metadata)
+                || v4.is_link_local()   // 169.254/16
                 || v4.is_unspecified()  // 0.0.0.0
                 || v4.is_broadcast()    // 255.255.255.255
+                || v4.octets() == [100, 100, 100, 200]  // cloud metadata (Alibaba/Tencent)
         }
         std::net::IpAddr::V6(v6) => {
             v6.is_loopback()            // ::1
                 || v6.is_unspecified()  // ::
+                || v6.segments()[0] & 0xfe00 == 0xfc00  // fc00::/7 unique-local
+                || v6.segments()[0] & 0xffc0 == 0xfe80  // fe80::/10 link-local
+                || match v6.to_ipv4_mapped() {           // ::ffff:127.0.0.1 etc.
+                    Some(mapped) => {
+                        mapped.is_loopback()
+                            || mapped.is_private()
+                            || mapped.is_link_local()
+                            || mapped.is_unspecified()
+                            || mapped.is_broadcast()
+                    }
+                    None => false,
+                }
         }
     }
 }
