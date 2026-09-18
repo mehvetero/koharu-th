@@ -143,6 +143,18 @@ pub async fn web_fetch_url(
         anyhow::bail!("URL must start with http:// or https://");
     }
 
+    let parsed = reqwest::Url::parse(url)?;
+    if let Some(host) = parsed.host_str() {
+        let lower = host.to_ascii_lowercase();
+        if lower == "localhost"
+            || lower.ends_with(".local")
+            || lower.ends_with(".internal")
+            || is_private_ip(host)
+        {
+            anyhow::bail!("requests to private/loopback addresses are not allowed");
+        }
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .redirect(reqwest::redirect::Policy::limited(5))
@@ -180,6 +192,25 @@ pub async fn web_fetch_url(
         text,
         truncated,
     })
+}
+
+fn is_private_ip(host: &str) -> bool {
+    let Ok(addr) = host.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    match addr {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()            // 127.0.0.0/8
+                || v4.is_private()      // 10/8, 172.16/12, 192.168/16
+                || v4.is_link_local()   // 169.254/16 (cloud metadata)
+                || v4.is_unspecified()  // 0.0.0.0
+                || v4.is_broadcast()    // 255.255.255.255
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()            // ::1
+                || v6.is_unspecified()  // ::
+        }
+    }
 }
 
 fn looks_like_html(s: &str) -> bool {
